@@ -102,7 +102,7 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
 
     return {
         "fit_count": total_fit_count,
-        "lefvasive": sum(leftover.values()),
+        "leftover": sum(leftover.values()),
         "layers": layers,
         "total_boxes_per_layer": sum(layer['boxes_per_layer'] for layer in layers)
     }
@@ -248,14 +248,6 @@ if calculate:
         st.download_button(
             label="Скачать результаты в CSV",
             data=csv_buffer.getvalue(),
-           .JScroll: **Ограничения алгоритма**
-- Текущий алгоритм размещает коробы одного типа на одном слое, что упрощает расчет и визуализацию, но не является полностью оптимальным для задач бин-пэкинга.
-- Для более сложного размещения (разные коробы на одном слое) потребуется интеграция библиотеки, такой как `py3dbp`. Если это нужно, я могу добавить такую функциональность.
-- Визуализация показывает только первый слой. Для отображения всех слоев можно создать ZIP-архив с PNG для каждого слоя.
-
----
-
-### **Как использовать скачанные файлы**
-1. **CSV-файл (`pallet_results.csv`)**:
-   - Откройте в Excel или Google Sheets.
-   - Пример содержимого:
+            file_name="pallet_results.csv",
+            mime="text/csv"
+        )

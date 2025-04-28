@@ -187,7 +187,9 @@ st.button("Удалить тип короба", on_click=remove_box_type)
 
 # Форма для ввода данных о коробах
 boxes = []
-for i in range(st.session_state.box_types):
+for i in range(st
+
+.session_state.box_types):
     st.subheader(f"Короб типа {i + 1}")
     col1, col2 = st.columns(2)
     with col1:
@@ -211,7 +213,7 @@ with col_btn2:
 
 if clear:
     st.session_state.box_types = 1
-    st.experimental_rerun()
+    st.rerun()
 
 if calculate:
     result = fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation)

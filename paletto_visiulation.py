@@ -46,6 +46,8 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
         
         best_fit = {
             "boxes_per_layer": 0,
+            "boxes_in_length": 0,
+            "boxes_in_width": 0,
             "layers": 0,
             "total_fit": 0,
             "orientation": (0, 0, 0),
@@ -66,6 +68,8 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
             if total_fit > best_fit["total_fit"]:
                 best_fit.update({
                     "boxes_per_layer": boxes_per_layer,
+                    "boxes_in_length": boxes_in_length,
+                    "boxes_in_width": boxes_in_width,
                     "layers": layers,
                     "total_fit": total_fit,
                     "orientation": orientation
@@ -92,6 +96,8 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
                 layers.append({
                     "box_index": box_index,
                     "boxes_per_layer": fit['boxes_per_layer'],
+                    "boxes_in_length": fit['boxes_in_length'],
+                    "boxes_in_width": fit['boxes_in_width'],
                     "orientation": fit['orientation']
                 })
                 total_height_used += h
@@ -125,19 +131,18 @@ def draw_pallet_layout(layers):
     layer = layers[0]
     l, w, h = layer['orientation']
     boxes_per_layer = layer['boxes_per_layer']
+    boxes_in_length = layer['boxes_in_length']
+    boxes_in_width = layer['boxes_in_width']
     
     if boxes_per_layer > 1000:
         st.warning("Слишком много коробов для отображения. Визуализация отключена.")
         return None
 
-    boxes_in_length = PALLET_LENGTH // l
-    boxes_in_width = PALLET_WIDTH // w
-
     # Создаем 2D-график
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.set_xlim(0, PALLET_LENGTH)
     ax.set_ylim(0, PALLET_WIDTH)
-    ax.set_title(f"Слой коробов типа {layer['box_index'] + 1} на паллете")
+    ax.set_title(f"Слой коробов типа {layer['box_index'] + 1} ({boxes_in_length}×{boxes_in_width})")
 
     # Рисуем коробы
     for i in range(boxes_in_length):
@@ -219,7 +224,9 @@ if calculate:
         st.write(f"**Всего коробов поместилось**: {result['fit_count']}")
         st.write(f"**Осталось вне паллеты**: {result['leftover']}")
         for layer in result['layers']:
-            st.write(f"Слой коробов типа {layer['box_index'] + 1}: {layer['boxes_per_layer']} коробов, ориентация (Д×Ш×В): {layer['orientation']}")
+            st.write(f"Слой коробов типа {layer['box_index'] + 1}: {layer['boxes_per_layer']} коробов "
+                     f"({layer['boxes_in_length']} по длине × {layer['boxes_in_width']} по ширине), "
+                     f"ориентация (Д×Ш×В): {layer['orientation']}")
 
         # Визуализация первого слоя и скачивание PNG
         image_buffer = draw_pallet_layout(result['layers'])
@@ -235,11 +242,15 @@ if calculate:
         result_data = [{
             "Тип короба": f"Тип {layer['box_index'] + 1}",
             "Коробов в слое": layer['boxes_per_layer'],
+            "Коробов по длине": layer['boxes_in_length'],
+            "Коробов по ширине": layer['boxes_in_width'],
             "Ориентация (Д×Ш×В)": layer['orientation']
         } for layer in result['layers']]
         result_data.append({
             "Тип короба": "Итого",
             "Коробов в слое": result['fit_count'],
+            "Коробов по длине": "-",
+            "Коробов по ширине": "-",
             "Ориентация (Д×Ш×В)": "-"
         })
         result_df = pd.DataFrame(result_data)

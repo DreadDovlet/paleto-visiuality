@@ -200,11 +200,11 @@ def draw_pallet_layout(layers):
 
 # Streamlit интерфейс
 # Добавление логотипа
-logo_path = "logo.png"  # Укажите путь к вашему логотипу
+logo_path = "Rubineta_logo.png"  # Укажите путь к вашему логотипу
 if os.path.exists(logo_path):
     st.image(logo_path, width=200)  # Установите желаемую ширину логотипа
 else:
-    st.warning("Файл логотипа (logo.png) не найден. Убедитесь, что он находится в той же директории, что и скрипт.")
+    st.warning("Файл логотипа (Rubineta_logo.png) не найден. Убедитесь, что он находится в той же директории, что и скрипт.")
 
 st.title("Расчёт размещения разных коробов на паллете")
 

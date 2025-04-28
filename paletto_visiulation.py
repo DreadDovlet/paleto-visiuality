@@ -3,11 +3,24 @@ import matplotlib.pyplot as plt
 from itertools import permutations
 import pandas as pd
 import io
+import os
 
 # Константы
 PALLET_LENGTH = 120
 PALLET_WIDTH = 80
 MAX_BOX_TYPES = 6
+
+# Установка цвета фона с помощью CSS
+st.markdown(
+    """
+    <style>
+    body {
+        background-color: #F0F0F0; /* Светло-серый фон, можно изменить */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
     """
@@ -186,6 +199,13 @@ def draw_pallet_layout(layers):
     return buffer
 
 # Streamlit интерфейс
+# Добавление логотипа
+logo_path = "logo.png"  # Укажите путь к вашему логотипу
+if os.path.exists(logo_path):
+    st.image(logo_path, width=200)  # Установите желаемую ширину логотипа
+else:
+    st.warning("Файл логотипа (logo.png) не найден. Убедитесь, что он находится в той же директории, что и скрипт.")
+
 st.title("Расчёт размещения разных коробов на паллете")
 
 # Пример использования

@@ -1,99 +1,261 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 from itertools import permutations
+import pandas as pd
+import io
 
+# Константы
 PALLET_LENGTH = 120
 PALLET_WIDTH = 80
 
-def fit_boxes_on_pallet(box_length, box_width, box_height, box_count, pallet_max_height):
-    orientations = set(permutations((box_length, box_width, box_height)))
-    best_fit = {
-        "boxes_per_layer": 0,
-        "layers": 0,
-        "total_fit": 0,
-        "orientation": ()
-    }
-
-    for orientation in orientations:
-        l, w, h = orientation
-        if h > pallet_max_height:
-            continue
-
-        if l == 0 or w == 0 or h == 0:
-            continue
-
-        boxes_in_length = PALLET_LENGTH // l
-        boxes_in_width = PALLET_WIDTH // w
-        boxes_per_layer = boxes_in_length * boxes_in_width
-        layers = pallet_max_height // h
-        total_fit = boxes_per_layer * layers
-
-        if total_fit > best_fit["total_fit"]:
-            best_fit.update({
-                "boxes_per_layer": boxes_per_layer,
-                "layers": layers,
-                "total_fit": total_fit,
-                "orientation": orientation
-            })
-
-    if best_fit["total_fit"] == 0:
+def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
+    """
+    Рассчитывает, сколько коробов разных типов можно разместить на паллете.
+    
+    Args:
+        boxes (list): Список словарей с данными коробов: [{'length': float, 'width': float, 'height': float, 'count': int}, ...]
+        pallet_max_height (float): Максимальная высота паллеты в см.
+        allow_full_rotation (bool): Разрешать ли полное вращение коробов.
+    
+    Returns:
+        dict: Результаты: общее количество помещенных коробов, остаток, слои и ориентации.
+    """
+    # Валидация входных данных
+    for box in boxes:
+        if any(x <= 0 for x in [box['length'], box['width'], box['height'], box['count']]):
+            return {
+                "fit_count": 0,
+                "leftover": sum(b['count'] for b in boxes),
+                "layers": [],
+                "total_boxes_per_layer": 0
+            }
+    
+    if pallet_max_height <= 0:
         return {
             "fit_count": 0,
-            "leftover": box_count,
-            "boxes_per_layer": 0,
-            "layers": 0,
-            "orientation": (0, 0, 0)
+            "leftover": sum(b['count'] for b in boxes),
+            "layers": [],
+            "total_boxes_per_layer": 0
         }
 
-    fit_count = min(box_count, best_fit["total_fit"])
-    leftover = box_count - fit_count
+    # Результаты для каждого типа коробов
+    box_fits = []
+    for box in boxes:
+        orientations = set(permutations((box['length'], box['width'], box['height']))) if allow_full_rotation else \
+                      {(box['length'], box['width'], box['height']), (box['width'], box['length'], box['height'])}
+        
+        best_fit = {
+            "boxes_per_layer": 0,
+            "layers": 0,
+            "total_fit": 0,
+            "orientation": (0, 0, 0),
+            "box_index": boxes.index(box)
+        }
+
+        for orientation in orientations:
+            l, w, h = orientation
+            if h > pallet_max_height:
+                continue
+
+            boxes_in_length = PALLET_LENGTH // l
+            boxes_in_width = PALLET_WIDTH // w
+            boxes_per_layer = boxes_in_length * boxes_in_width
+            layers = pallet_max_height // h
+            total_fit = boxes_per_layer * layers
+
+            if total_fit > best_fit["total_fit"]:
+                best_fit.update({
+                    "boxes_per_layer": boxes_per_layer,
+                    "layers": layers,
+                    "total_fit": total_fit,
+                    "orientation": orientation
+                })
+
+        box_fits.append(best_fit)
+
+    # Комбинируем слои для разных типов коробов
+    total_height_used = 0
+    layers = []
+    total_fit_count = 0
+    leftover = {i: boxes[i]['count'] for i in range(len(boxes))}
+
+    # Сортируем типы коробов по количеству коробов на слой (для оптимизации)
+    sorted_fits = sorted([f for f in box_fits if f['total_fit'] > 0], key=lambda x: x['boxes_per_layer'], reverse=True)
+
+    for fit in sorted_fits:
+        box_index = fit['box_index']
+        l, w, h = fit['orientation']
+        max_layers = min(fit['layers'], leftover[box_index] // fit['boxes_per_layer'] + 1)
+        
+        for layer in range(max_layers):
+            if total_height_used + h <= pallet_max_height and leftover[box_index] >= fit['boxes_per_layer']:
+                layers.append({
+                    "box_index": box_index,
+                    "boxes_per_layer": fit['boxes_per_layer'],
+                    "orientation": fit['orientation']
+                })
+                total_height_used += h
+                total_fit_count += fit['boxes_per_layer']
+                leftover[box_index] -= fit['boxes_per_layer']
+            else:
+                break
 
     return {
-        "fit_count": fit_count,
-        "leftover": leftover,
-        "boxes_per_layer": best_fit["boxes_per_layer"],
-        "layers": best_fit["layers"],
-        "orientation": best_fit["orientation"]
+        "fit_count": total_fit_count,
+        "lefvasive": sum(leftover.values()),
+        "layers": layers,
+        "total_boxes_per_layer": sum(layer['boxes_per_layer'] for layer in layers)
     }
 
-def draw_pallet_layout(orientation, boxes_per_layer, layers):
-    l, w, h = orientation
-    if l == 0 or w == 0:
-        st.write("Нет подходящей ориентации для отображения")
-        return
+def draw_pallet_layout(layers):
+    """
+    Визуализирует 2D-раскладку первого слоя коробов на паллете.
+    
+    Args:
+        layers (list): Список слоев с данными о коробах.
+    
+    Returns:
+        BytesIO: Буфер с изображением PNG для скачивания.
+    """
+    if not layers:
+        st.error("Невозможно отобразить раскладку: нет подходящих коробов.")
+        return None
+
+    # Берем первый слой для визуализации
+    layer = layers[0]
+    l, w, h = layer['orientation']
+    boxes_per_layer = layer['boxes_per_layer']
+    
+    if boxes_per_layer > 1000:
+        st.warning("Слишком много коробов для отображения. Визуализация отключена.")
+        return None
 
     boxes_in_length = PALLET_LENGTH // l
     boxes_in_width = PALLET_WIDTH // w
 
+    # Создаем 2D-график
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.set_xlim(0, PALLET_LENGTH)
     ax.set_ylim(0, PALLET_WIDTH)
-    ax.set_title("Один слой коробов на паллете")
+    ax.set_title(f"Слой коробов типа {layer['box_index'] + 1} на паллете")
 
+    # Рисуем коробы
     for i in range(boxes_in_length):
         for j in range(boxes_in_width):
             rect = plt.Rectangle((i * l, j * w), l, w, linewidth=1, edgecolor='blue', facecolor='skyblue')
             ax.add_patch(rect)
 
     ax.set_aspect('equal')
+
+    # Отображаем график в Streamlit
     st.pyplot(fig)
 
-st.title("Расчёт размещения коробов на паллете")
+    # Сохраняем изображение в буфер для скачивания
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format='png', bbox_inches='tight')
+    buffer.seek(0)
 
-box_length = st.number_input("Длина короба (см)", min_value=1)
-box_width = st.number_input("Ширина короба (см)", min_value=1)
-box_height = st.number_input("Высота короба (см)", min_value=1)
-box_count = st.number_input("Количество коробов", min_value=1)
-pallet_max_height = st.number_input("Макс. высота паллеты (см)", min_value=1)
+    # Закрываем фигуру
+    plt.close(fig)
 
-if st.button("Рассчитать"):
-    result = fit_boxes_on_pallet(box_length, box_width, box_height, box_count, pallet_max_height)
+    return buffer
 
+# Streamlit интерфейс
+st.title("Расчёт размещения разных коробов на паллете")
+
+# Пример использования
+st.markdown("**Пример**: Короб 1: 40×30×20 см (5 шт.), Короб 2: 30×20×10 см (10 шт.), паллета 120×80×150 см.")
+
+# Управление количеством типов коробов
+if 'box_types' not in st.session_state:
+    st.session_state.box_types = 1
+
+def add_box_type():
+    st.session_state.box_types += 1
+
+def remove_box_type():
+    if st.session_state.box_types > 1:
+        st.session_state.box_types -= 1
+
+st.button("Добавить тип короба", on_click=add_box_type)
+st.button("Удалить тип короба", on_click=remove_box_type)
+
+# Форма для ввода данных о коробах
+boxes = []
+for i in range(st.session_state.box_types):
+    st.subheader(f"Короб типа {i + 1}")
+    col1, col2 = st.columns(2)
+    with col1:
+        length = st.number_input(f"Длина короба {i + 1} (см)", min_value=1, step=1, value=40, key=f"length_{i}")
+        width = st.number_input(f"Ширина короба {i + 1} (см)", min_value=1, step=1, value=30, key=f"width_{i}")
+    with col2:
+        height = st.number_input(f"Высота короба {i + 1} (см)", min_value=1, step=1, value=20, key=f"height_{i}")
+        count = st.number_input(f"Количество коробов {i + 1}", min_value=1, step=1, value=5, key=f"count_{i}")
+    boxes.append({"length": length, "width": width, "height": height, "count": count})
+
+# Общие параметры
+pallet_max_height = st.number_input("Макс. высота паллеты (см)", min_value=1, step=1, value=150)
+allow_full_rotation = st.checkbox("Разрешить полное вращение коробов", value=True)
+
+# Кнопки
+col_btn1, col_btn2 = st.columns(2)
+with col_btn1:
+    calculate = st.button("Рассчитать")
+with col_btn2:
+    clear = st.button("Очистить")
+
+if clear:
+    st.session_state.box_types = 1
+    st.experimental_rerun()
+
+if calculate:
+    result = fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation)
+
+    # Вывод результатов
     st.subheader("Результаты")
-    st.write(f"Коробов поместилось: {result['fit_count']}")
-    st.write(f"Осталось вне паллеты: {result['leftover']}")
-    st.write(f"Количество слоёв: {result['layers']}")
-    st.write(f"Коробов на одном слое: {result['boxes_per_layer']}")
-    st.write(f"Использованная ориентация: {result['orientation']}")
+    if result["fit_count"] == 0:
+        st.error("Невозможно разместить короба с заданными параметрами.")
+    else:
+        st.write(f"**Всего коробов поместилось**: {result['fit_count']}")
+        st.write(f"**Осталось вне паллеты**: {result['leftover']}")
+        for layer in result['layers']:
+            st.write(f"Слой коробов типа {layer['box_index'] + 1}: {layer['boxes_per_layer']} коробов, ориентация (Д×Ш×В): {layer['orientation']}")
 
-    draw_pallet_layout(result['orientation'], result['boxes_per_layer'], result['layers'])
+        # Визуализация первого слоя и скачивание PNG
+        image_buffer = draw_pallet_layout(result['layers'])
+        if image_buffer:
+            st.download_button(
+                label="Скачать визуализацию (PNG)",
+                data=image_buffer,
+                file_name="pallet_layout.png",
+                mime="image/png"
+            )
+
+        # Экспорт результатов в CSV
+        result_data = [{
+            "Тип короба": f"Тип {layer['box_index'] + 1}",
+            "Коробов в слое": layer['boxes_per_layer'],
+            "Ориентация (Д×Ш×В)": layer['orientation']
+        } for layer in result['layers']]
+        result_data.append({
+            "Тип короба": "Итого",
+            "Коробов в слое": result['fit_count'],
+            "Ориентация (Д×Ш×В)": "-"
+        })
+        result_df = pd.DataFrame(result_data)
+        csv_buffer = io.StringIO()
+        result_df.to_csv(csv_buffer, index=False)
+        st.download_button(
+            label="Скачать результаты в CSV",
+            data=csv_buffer.getvalue(),
+           .JScroll: **Ограничения алгоритма**
+- Текущий алгоритм размещает коробы одного типа на одном слое, что упрощает расчет и визуализацию, но не является полностью оптимальным для задач бин-пэкинга.
+- Для более сложного размещения (разные коробы на одном слое) потребуется интеграция библиотеки, такой как `py3dbp`. Если это нужно, я могу добавить такую функциональность.
+- Визуализация показывает только первый слой. Для отображения всех слоев можно создать ZIP-архив с PNG для каждого слоя.
+
+---
+
+### **Как использовать скачанные файлы**
+1. **CSV-файл (`pallet_results.csv`)**:
+   - Откройте в Excel или Google Sheets.
+   - Пример содержимого:

@@ -7,6 +7,7 @@ import io
 # Константы
 PALLET_LENGTH = 120
 PALLET_WIDTH = 80
+MAX_BOX_TYPES = 6
 
 def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
     """
@@ -77,34 +78,53 @@ def fit_boxes_on_pallet(boxes, pallet_max_height, allow_full_rotation=True):
 
         box_fits.append(best_fit)
 
-    # Комбинируем слои для разных типов коробов
+    # Комбинируем слои для всех типов коробов
     total_height_used = 0
     layers = []
     total_fit_count = 0
     leftover = {i: boxes[i]['count'] for i in range(len(boxes))}
 
-    # Сортируем типы коробов по количеству коробов на слой (для оптимизации)
-    sorted_fits = sorted([f for f in box_fits if f['total_fit'] > 0], key=lambda x: x['boxes_per_layer'], reverse=True)
+    # Пробуем размещать слои всех типов коробов, пока есть место и коробы
+    while total_height_used < pallet_max_height and any(leftover[i] > 0 for i in range(len(boxes))):
+        best_layer = None
+        best_score = -1
+        best_box_index = None
 
-    for fit in sorted_fits:
-        box_index = fit['box_index']
-        l, w, h = fit['orientation']
-        max_layers = min(fit['layers'], leftover[box_index] // fit['boxes_per_layer'] + 1)
-        
-        for layer in range(max_layers):
-            if total_height_used + h <= pallet_max_height and leftover[box_index] >= fit['boxes_per_layer']:
-                layers.append({
+        # Проверяем каждый тип короба
+        for fit in box_fits:
+            box_index = fit['box_index']
+            if leftover[box_index] <= 0 or fit['total_fit'] == 0:
+                continue
+
+            l, w, h = fit['orientation']
+            if total_height_used + h > pallet_max_height:
+                continue
+
+            boxes_per_layer = fit['boxes_per_layer']
+            boxes_in_length = fit['boxes_in_length']
+            boxes_in_width = fit['boxes_in_width']
+
+            # Оцениваем слой по количеству коробов
+            score = min(leftover[box_index], boxes_per_layer)
+            if score > best_score:
+                best_score = score
+                best_layer = {
                     "box_index": box_index,
-                    "boxes_per_layer": fit['boxes_per_layer'],
-                    "boxes_in_length": fit['boxes_in_length'],
-                    "boxes_in_width": fit['boxes_in_width'],
+                    "boxes_per_layer": boxes_per_layer,
+                    "boxes_in_length": boxes_in_length,
+                    "boxes_in_width": boxes_in_width,
                     "orientation": fit['orientation']
-                })
-                total_height_used += h
-                total_fit_count += fit['boxes_per_layer']
-                leftover[box_index] -= fit['boxes_per_layer']
-            else:
-                break
+                }
+                best_box_index = box_index
+
+        if best_layer is None:
+            break
+
+        # Добавляем лучший слой
+        layers.append(best_layer)
+        total_height_used += best_layer['orientation'][2]  # Высота слоя
+        total_fit_count += min(leftover[best_box_index], best_layer['boxes_per_layer'])
+        leftover[best_box_index] -= min(leftover[best_box_index], best_layer['boxes_per_layer'])
 
     return {
         "fit_count": total_fit_count,
@@ -176,7 +196,10 @@ if 'box_types' not in st.session_state:
     st.session_state.box_types = 1
 
 def add_box_type():
-    st.session_state.box_types += 1
+    if st.session_state.box_types < MAX_BOX_TYPES:
+        st.session_state.box_types += 1
+    else:
+        st.warning("Достигнуто максимальное количество типов коробов (6).")
 
 def remove_box_type():
     if st.session_state.box_types > 1:
@@ -187,9 +210,7 @@ st.button("Удалить тип короба", on_click=remove_box_type)
 
 # Форма для ввода данных о коробах
 boxes = []
-for i in range(st
-
-.session_state.box_types):
+for i in range(st.session_state.box_types):
     st.subheader(f"Короб типа {i + 1}")
     col1, col2 = st.columns(2)
     with col1:
